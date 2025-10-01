@@ -41,16 +41,16 @@
 
       <!-- Действия -->
       <div class="actions-section">
-        <!-- Claim бесплатных яиц -->
+        <!-- Claim бесплатных кальмаров -->
         <div class="action-card">
           <h3>🎁 Free Starter Pack</h3>
-          <p>Get 3000 eggs to start your farm! (First 1000 users only)</p>
+          <p>Get 30 squids to start your farm! (First 1000 users only)</p>
           <button 
             @click="claimFreeEggs" 
             :disabled="claimedFreeEggs || isLoading"
             class="btn btn-success"
           >
-            {{ claimedFreeEggs ? '✅ Already Claimed' : '🎁 Claim 3000 Eggs' }}
+            {{ claimedFreeEggs ? '✅ Already Claimed' : '🎁 Claim 30 Squids' }}
           </button>
         </div>
 
@@ -81,7 +81,7 @@
         </div>
 
         <!-- Продажа яиц -->
-        <div class="action-card">
+        <div class="action-card" style="display: none;">
           <h3>💰 Sell Eggs</h3>
           <p>100 eggs = 0.01 TON</p>
           <div class="input-group">
@@ -136,7 +136,7 @@
       </div>
 
       <!-- Загрузка -->
-      <div v-if="isLoading" class="loading">
+      <div v-if="isLoading" class="loading" style="display: none !important;">
         <div class="loading-spinner">⏳</div>
         <div>Loading...</div>
       </div>
@@ -147,8 +147,8 @@
 <script>
 import axios from 'axios';
 
-// Для продакшена используем относительный путь
-const API_BASE = '/api';
+// Для локальной разработки
+const API_BASE = 'http://localhost:3000/api';
 
 export default {
   name: 'App',
@@ -186,12 +186,8 @@ export default {
     maxSellAmount() {
       return Math.floor(this.eggs / 100);
     },
-    // Добавляем вычисляемое свойство для производства в секунду
     productionPerSecond() {
       return (this.squidCount * 0.011111).toFixed(4);
-    },
-    productionPerMinute() {
-      return (this.squidCount * 0.667).toFixed(2);
     }
   },
   async mounted() {
@@ -203,10 +199,10 @@ export default {
     // Загружаем данные пользователя
     await this.loadUserData();
     
-    // Запускаем автоматическое обновление КАЖДУЮ СЕКУНДУ
+    // Запускаем автоматическое обновление каждую секунду
     this.updateTimer = setInterval(() => {
       this.loadUserData();
-    }, 1000); // 1000ms = 1 секунда
+    }, 1000);
   },
   beforeUnmount() {
     if (this.updateTimer) clearInterval(this.updateTimer);
@@ -214,22 +210,26 @@ export default {
   methods: {
     // Инициализация Telegram WebApp
     initializeTelegram() {
+      // Пытаемся получить сохраненный ID из localStorage
+      const savedTelegramId = localStorage.getItem('squidFarmTelegramId');
+      
+      if (savedTelegramId) {
+        this.telegramId = savedTelegramId;
+        console.log('📱 Using saved Telegram ID:', this.telegramId);
+        return;
+      }
+
       if (window.Telegram?.WebApp) {
         console.log('📱 Telegram WebApp detected');
         const tg = window.Telegram.WebApp;
         
-        // Инициализируем приложение
         tg.ready();
         tg.expand();
         
-        // Устанавливаем тему Telegram
-        this.setTelegramTheme(tg);
-        
         // Получаем данные пользователя
         this.telegramId = tg.initDataUnsafe?.user?.id;
-        this.tgUser = tg.initDataUnsafe?.user;
         
-        console.log('👤 Telegram User:', this.tgUser);
+        console.log('👤 Telegram User ID:', this.telegramId);
         
         if (!this.telegramId) {
           console.warn('Telegram user ID not found');
@@ -237,33 +237,37 @@ export default {
           return;
         }
         
+        // Сохраняем ID в localStorage
+        localStorage.setItem('squidFarmTelegramId', this.telegramId.toString());
+        
       } else {
         // Режим разработки
         console.log('💻 Running in development mode');
-        this.telegramId = Math.floor(Math.random() * 1000000);
+        this.telegramId = Math.floor(Math.random() * 1000000).toString();
+        localStorage.setItem('squidFarmTelegramId', this.telegramId);
+        console.log('🎲 Generated test ID:', this.telegramId);
+      }
+    },
+    
+    // Загрузка данных пользователя
+    async loadUserData() {
+      if (!this.telegramId) {
+        console.log('❌ No telegramId, skipping load');
+        return;
       }
       
-      // Загружаем данные пользователя
-      this.loadUserData();
-    },
-    
-    // Установка темы Telegram
-    setTelegramTheme(tg) {
-      const theme = tg.colorScheme;
-      if (theme === 'dark') {
-        document.documentElement.style.setProperty('--bg-color', '#1a1a1a');
-        document.documentElement.style.setProperty('--text-color', '#ffffff');
-      }
-    },
-    
-    // Простая загрузка данных пользователя
-    async loadUserData() {
-      if (!this.telegramId) return;
+      console.log('🔍 Loading user data for ID:', this.telegramId);
+      
+      this.isLoading = true;
       
       try {
         const response = await axios.post(`${API_BASE}/user`, {
           telegramId: this.telegramId
+        }, {
+          timeout: 5000
         });
+        
+        console.log('✅ User data loaded:', response.data);
         
         this.eggs = response.data.eggs;
         this.squidCount = response.data.squidCount;
@@ -273,12 +277,23 @@ export default {
         this.connectionMessage = '✅ Connected';
         
       } catch (error) {
-        console.error('Error loading user data:', error);
-        this.connectionMessage = '❌ Disconnected - Backend not running?';
+        console.error('❌ Error loading user data:', error);
+        
+        if (error.code === 'ECONNREFUSED') {
+          this.connectionMessage = '❌ Backend not running on port 3000';
+        } else if (error.response) {
+          this.connectionMessage = `❌ Backend error: ${error.response.status}`;
+        } else if (error.request) {
+          this.connectionMessage = '❌ No response from backend';
+        } else {
+          this.connectionMessage = '❌ Connection error: ' + error.message;
+        }
+      } finally {
+        this.isLoading = false;
       }
     },
     
-    // Claim бесплатных яиц
+    // Claim бесплатных кальмаров
     async claimFreeEggs() {
       this.isLoading = true;
       try {
@@ -286,9 +301,9 @@ export default {
           telegramId: this.telegramId
         });
         
-        this.eggs = response.data.eggs;
+        this.squidCount = response.data.newSquidCount;
         this.claimedFreeEggs = true;
-        this.showNotification('🎉 Successfully claimed 3000 eggs!', 'success');
+        this.showNotification('🎉 Successfully claimed 30 squids! They will produce eggs automatically.', 'success');
       } catch (error) {
         this.showNotification(error.response?.data?.error || 'Claim failed', 'error');
       } finally {
@@ -352,7 +367,6 @@ export default {
 </script>
 
 <style>
-/* Стили остаются без изменений */
 * {
   margin: 0;
   padding: 0;
