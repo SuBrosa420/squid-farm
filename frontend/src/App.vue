@@ -108,27 +108,27 @@
       </div>
 
       <!-- Информация -->
-<div class="info-section">
-  <h3>📊 Farm Information</h3>
-  <div class="info-grid">
-    <div class="info-item">
-      <span>Eggs per squid per hour:</span>
-      <span>40</span>
-    </div>
-    <div class="info-item">
-      <span>Eggs per squid per second:</span>
-      <span>0.0111</span>
-    </div>
-    <div class="info-item">
-      <span>Total eggs production rate:</span>
-      <span>{{ productionPerSecond }} eggs/sec</span>
-    </div>
-    <div class="info-item">
-      <span>Next egg production update:</span>
-      <span>Every second</span>
-    </div>
-  </div>
-</div>
+      <div class="info-section">
+        <h3>📊 Farm Information</h3>
+        <div class="info-grid">
+          <div class="info-item">
+            <span>Eggs per squid per hour:</span>
+            <span>40</span>
+          </div>
+          <div class="info-item">
+            <span>Eggs per squid per second:</span>
+            <span>0.0111</span>
+          </div>
+          <div class="info-item">
+            <span>Total eggs production rate:</span>
+            <span>{{ productionPerSecond }} eggs/sec</span>
+          </div>
+          <div class="info-item">
+            <span>Next egg production update:</span>
+            <span>Every second</span>
+          </div>
+        </div>
+      </div>
 
       <!-- Уведомления -->
       <div v-if="notification.message" :class="['notification', notification.type]">
@@ -147,7 +147,8 @@
 <script>
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:3000/api';
+// Для продакшена используем относительный путь
+const API_BASE = '/api';
 
 export default {
   name: 'App',
@@ -179,34 +180,34 @@ export default {
     }
   },
   computed: {
-  maxHatchAmount() {
-    return Math.floor(this.eggs / 100);
+    maxHatchAmount() {
+      return Math.floor(this.eggs / 100);
+    },
+    maxSellAmount() {
+      return Math.floor(this.eggs / 100);
+    },
+    // Добавляем вычисляемое свойство для производства в секунду
+    productionPerSecond() {
+      return (this.squidCount * 0.011111).toFixed(4);
+    },
+    productionPerMinute() {
+      return (this.squidCount * 0.667).toFixed(2);
+    }
   },
-  maxSellAmount() {
-    return Math.floor(this.eggs / 100);
+  async mounted() {
+    console.log('🚀 App mounted - initializing...');
+    
+    // Инициализация Telegram
+    this.initializeTelegram();
+    
+    // Загружаем данные пользователя
+    await this.loadUserData();
+    
+    // Запускаем автоматическое обновление КАЖДУЮ СЕКУНДУ
+    this.updateTimer = setInterval(() => {
+      this.loadUserData();
+    }, 1000); // 1000ms = 1 секунда
   },
-  // Добавляем вычисляемое свойство для производства в секунду
-  productionPerSecond() {
-    return (this.squidCount * 0.011111).toFixed(4);
-  },
-  productionPerMinute() {
-    return (this.squidCount * 0.667).toFixed(2);
-  }
-},
-async mounted() {
-  console.log('🚀 App mounted - initializing...');
-  
-  // Инициализация Telegram
-  this.initializeTelegram();
-  
-  // Загружаем данные пользователя
-  await this.loadUserData();
-  
-  // Запускаем автоматическое обновление КАЖДУЮ СЕКУНДУ
-  this.updateTimer = setInterval(() => {
-    this.loadUserData();
-  }, 1000); // 1000ms = 1 секунда
-},
   beforeUnmount() {
     if (this.updateTimer) clearInterval(this.updateTimer);
   },
@@ -216,16 +217,42 @@ async mounted() {
       if (window.Telegram?.WebApp) {
         console.log('📱 Telegram WebApp detected');
         const tg = window.Telegram.WebApp;
+        
+        // Инициализируем приложение
         tg.ready();
         tg.expand();
+        
+        // Устанавливаем тему Telegram
+        this.setTelegramTheme(tg);
+        
+        // Получаем данные пользователя
         this.telegramId = tg.initDataUnsafe?.user?.id;
-        console.log('👤 Telegram User ID:', this.telegramId);
+        this.tgUser = tg.initDataUnsafe?.user;
+        
+        console.log('👤 Telegram User:', this.tgUser);
+        
+        if (!this.telegramId) {
+          console.warn('Telegram user ID not found');
+          this.showNotification('Please open through Telegram bot', 'error');
+          return;
+        }
+        
+      } else {
+        // Режим разработки
+        console.log('💻 Running in development mode');
+        this.telegramId = Math.floor(Math.random() * 1000000);
       }
       
-      if (!this.telegramId) {
-        // Режим разработки
-        this.telegramId = Math.floor(Math.random() * 1000000);
-        console.log('💻 Development mode, test ID:', this.telegramId);
+      // Загружаем данные пользователя
+      this.loadUserData();
+    },
+    
+    // Установка темы Telegram
+    setTelegramTheme(tg) {
+      const theme = tg.colorScheme;
+      if (theme === 'dark') {
+        document.documentElement.style.setProperty('--bg-color', '#1a1a1a');
+        document.documentElement.style.setProperty('--text-color', '#ffffff');
       }
     },
     
@@ -283,7 +310,7 @@ async mounted() {
         this.eggs = response.data.newEggs;
         this.squidCount = response.data.newSquidCount;
         this.hatchAmount = 1;
-        this.showNotification(`✅ Hatched ${this.hatchAmount} squid(s)!`, 'success');
+        this.showNotification(`✅ Hatched ${response.data.newSquidCount - this.squidCount + this.hatchAmount} squid(s)!`, 'success');
       } catch (error) {
         this.showNotification(error.response?.data?.error || 'Hatching failed', 'error');
       } finally {
@@ -325,7 +352,7 @@ async mounted() {
 </script>
 
 <style>
-/* Стили остаются такими же как в предыдущей версии */
+/* Стили остаются без изменений */
 * {
   margin: 0;
   padding: 0;

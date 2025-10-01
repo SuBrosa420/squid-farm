@@ -6,8 +6,15 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
+// Middleware для продакшена
+app.use(cors({
+  origin: [
+    'https://web.telegram.org',
+    'https://t.me',
+    'http://localhost:5173' // Для разработки
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Инициализация базы данных
