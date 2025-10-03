@@ -36,6 +36,7 @@
 
       <!-- TON Wallet -->
       <TonWallet 
+        v-if="userMemo"
         :user-memo="userMemo"
         @wallet-connected="onWalletConnected"
         @wallet-disconnected="onWalletDisconnected"
