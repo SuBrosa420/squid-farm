@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const { Address, Cell, beginCell, toNano } = require('ton');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,6 +10,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors({
   origin: [
+    'https://testdomenwork.online',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'https://web.telegram.org',
@@ -33,6 +35,7 @@ db.serialize(() => {
     squid_count INTEGER DEFAULT 0,
     ton_balance DECIMAL(15,6) DEFAULT 0,
     claimed_free_eggs BOOLEAN DEFAULT FALSE,
+    user_memo TEXT UNIQUE,
     last_production_update DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
@@ -43,6 +46,13 @@ db.serialize(() => {
     }
   });
 });
+
+// Функция для генерации уникального мемо-кода
+function generateMemo(telegramId) {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `SF${telegramId}${timestamp}${random}`.toUpperCase();
+}
 
 // Простая функция для получения пользователя
 function getSimpleUser(telegramId, callback) {
@@ -63,15 +73,17 @@ function getSimpleUser(telegramId, callback) {
 // Функция для создания нового пользователя
 function createUser(telegramId, callback) {
   console.log(`👤 Creating new user: ${telegramId}`);
+  const userMemo = generateMemo(telegramId);
+  
   db.run(
-    'INSERT INTO users (telegram_id) VALUES (?)',
-    [telegramId],
+    'INSERT INTO users (telegram_id, user_memo) VALUES (?, ?)',
+    [telegramId, userMemo],
     function(err) {
       if (err) {
         console.error('Error creating user:', err);
         callback(null, err);
       } else {
-        console.log(`✅ User created with ID: ${this.lastID}`);
+        console.log(`✅ User created with ID: ${this.lastID}, Memo: ${userMemo}`);
         getSimpleUser(telegramId, callback);
       }
     }
@@ -166,7 +178,8 @@ app.post('/api/user', (req, res) => {
           eggs: parseFloat(newUser.eggs),
           squidCount: newUser.squid_count,
           tonBalance: parseFloat(newUser.ton_balance),
-          claimedFreeEggs: Boolean(newUser.claimed_free_eggs)
+          claimedFreeEggs: Boolean(newUser.claimed_free_eggs),
+          userMemo: newUser.user_memo
         });
       });
     } else {
@@ -183,7 +196,8 @@ app.post('/api/user', (req, res) => {
             eggs: parseFloat(updatedUser.eggs),
             squidCount: updatedUser.squid_count,
             tonBalance: parseFloat(updatedUser.ton_balance),
-            claimedFreeEggs: Boolean(updatedUser.claimed_free_eggs)
+            claimedFreeEggs: Boolean(updatedUser.claimed_free_eggs),
+            userMemo: updatedUser.user_memo
           });
         });
       });
@@ -368,6 +382,133 @@ app.post('/api/sell', (req, res) => {
         }
       );
     });
+  });
+});
+
+// Пополнение баланса по мемо-коду
+app.post('/api/deposit', (req, res) => {
+  const { memo, amount } = req.body;
+  
+  if (!memo) {
+    return res.status(400).json({ error: 'Memo is required' });
+  }
+  
+  if (!amount || amount < 0.001) {
+    return res.status(400).json({ error: 'Invalid amount (minimum 0.001 TON)' });
+  }
+
+  console.log(`💰 DEPOSIT ${amount} TON for memo: ${memo}`);
+
+  // Находим пользователя по мемо-коду
+  db.get(
+    'SELECT * FROM users WHERE user_memo = ?',
+    [memo],
+    (err, user) => {
+      if (err) {
+        console.error('❌ Database error:', err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+      
+      if (!user) {
+        return res.status(404).json({ error: 'User not found for this memo' });
+      }
+
+      // Обновляем баланс пользователя
+      const newTonBalance = parseFloat(user.ton_balance) + amount;
+      const now = new Date().toISOString();
+      
+      db.run(
+        'UPDATE users SET ton_balance = ?, last_production_update = ? WHERE id = ?',
+        [newTonBalance, now, user.id],
+        function(err) {
+          if (err) {
+            console.error('❌ Error updating balance for deposit:', err);
+            return res.status(500).json({ error: 'Error processing deposit' });
+          }
+          
+          console.log(`✅ Deposit processed: ${amount} TON for user ${user.telegram_id}`);
+          
+          res.json({ 
+            success: true, 
+            newTonBalance: newTonBalance,
+            depositAmount: amount,
+            telegramId: user.telegram_id,
+            message: `Deposit of ${amount} TON processed successfully!`
+          });
+        }
+      );
+    }
+  );
+});
+
+// Вывод TON на кошелек
+app.post('/api/withdraw', (req, res) => {
+  const { telegramId, amount, walletAddress } = req.body;
+  
+  if (!telegramId) {
+    return res.status(400).json({ error: 'Telegram ID is required' });
+  }
+  
+  if (!amount || amount < 0.001) {
+    return res.status(400).json({ error: 'Invalid amount (minimum 0.001 TON)' });
+  }
+  
+  if (!walletAddress) {
+    return res.status(400).json({ error: 'Wallet address is required' });
+  }
+
+  console.log(`💸 WITHDRAW ${amount} TON to ${walletAddress} for telegramId: ${telegramId}`);
+
+  getSimpleUser(telegramId, (user, err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const currentBalance = parseFloat(user.ton_balance);
+    
+    if (currentBalance < amount) {
+      return res.status(400).json({ 
+        error: `Insufficient balance. You have ${currentBalance.toFixed(6)} TON, but trying to withdraw ${amount} TON` 
+      });
+    }
+
+    // Валидация адреса TON
+    try {
+      Address.parse(walletAddress);
+    } catch (error) {
+      return res.status(400).json({ error: 'Invalid TON wallet address' });
+    }
+
+    // Обновляем баланс пользователя
+    const newTonBalance = currentBalance - amount;
+    const now = new Date().toISOString();
+    
+    db.run(
+      'UPDATE users SET ton_balance = ?, last_production_update = ? WHERE id = ?',
+      [newTonBalance, now, user.id],
+      function(err) {
+        if (err) {
+          console.error('❌ Error updating balance for withdrawal:', err);
+          return res.status(500).json({ error: 'Error processing withdrawal' });
+        }
+        
+        // В реальном приложении здесь бы была отправка TON на блокчейн
+        // Для демо мы просто обновляем баланс
+        console.log(`✅ Withdrawal processed: ${amount} TON to ${walletAddress}`);
+        
+        res.json({ 
+          success: true, 
+          newTonBalance: newTonBalance,
+          withdrawalAmount: amount,
+          walletAddress: walletAddress,
+          message: `Withdrawal of ${amount} TON to ${walletAddress} processed successfully!`
+        });
+      }
+    );
   });
 });
 

@@ -9,11 +9,15 @@
     "preview": "vite preview --port 4173"
   },
   "dependencies": {
+    "@tonconnect/sdk": "^3.3.1",
+    "@tonconnect/ui": "^2.3.1",
     "axios": "^1.6.0",
     "vue": "^3.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
+    "https": "^1.0.0",
+    "selfsigned": "^3.0.1",
     "vite": "^5.0.0"
   }
 }

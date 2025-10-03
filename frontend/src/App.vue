@@ -34,6 +34,14 @@
         </div>
       </div>
 
+      <!-- TON Wallet -->
+      <TonWallet 
+        :user-memo="userMemo"
+        @wallet-connected="onWalletConnected"
+        @wallet-disconnected="onWalletDisconnected"
+        @deposit-initiated="onDepositInitiated"
+      />
+
       <!-- Статус подключения -->
       <div v-if="connectionMessage" class="connection-status">
         {{ connectionMessage }}
@@ -81,7 +89,7 @@
         </div>
 
         <!-- Продажа яиц -->
-        <div class="action-card" style="display: none;">
+        <div class="action-card">
           <h3>💰 Sell Eggs</h3>
           <p>100 eggs = 0.01 TON</p>
           <div class="input-group">
@@ -103,6 +111,34 @@
           </div>
           <div class="cost-info">
             Reward: {{ (sellAmount * 0.01).toFixed(6) }} TON
+          </div>
+        </div>
+
+        <!-- Вывод TON на кошелек -->
+        <div v-if="walletConnected && tonBalance > 0" class="action-card">
+          <h3>💸 Withdraw TON</h3>
+          <p>Withdraw your TON balance to your connected wallet</p>
+          <div class="input-group">
+            <input 
+              v-model.number="withdrawAmount" 
+              type="number" 
+              min="0.001" 
+              :max="tonBalance"
+              step="0.001"
+              class="input"
+              :disabled="isLoading"
+              placeholder="Amount to withdraw"
+            >
+            <button 
+              @click="withdrawTon" 
+              :disabled="!withdrawAmount || withdrawAmount < 0.001 || isLoading"
+              class="btn btn-withdraw"
+            >
+              Withdraw
+            </button>
+          </div>
+          <div class="cost-info">
+            Available: {{ tonBalance.toFixed(6) }} TON
           </div>
         </div>
       </div>
@@ -127,6 +163,10 @@
             <span>Next egg production update:</span>
             <span>Every second</span>
           </div>
+          <div v-if="userMemo" class="info-item memo-item">
+            <span>Your Memo Code:</span>
+            <span class="memo-code">{{ userMemo }}</span>
+          </div>
         </div>
       </div>
 
@@ -146,12 +186,16 @@
 
 <script>
 import axios from 'axios';
+import TonWallet from './components/TonWallet.vue';
 
 // Для локальной разработки
 const API_BASE = 'http://localhost:3000/api';
 
 export default {
   name: 'App',
+  components: {
+    TonWallet
+  },
   data() {
     return {
       // Данные пользователя
@@ -161,9 +205,16 @@ export default {
       tonBalance: 0,
       claimedFreeEggs: false,
       
+      // TON Wallet
+      walletConnected: false,
+      walletAddress: null,
+      walletBalance: 0,
+      userMemo: null,
+      
       // Ввод пользователя
       hatchAmount: 1,
       sellAmount: 1,
+      withdrawAmount: 0,
       
       // Состояние UI
       isLoading: false,
@@ -273,6 +324,7 @@ export default {
         this.squidCount = response.data.squidCount;
         this.tonBalance = response.data.tonBalance;
         this.claimedFreeEggs = response.data.claimedFreeEggs;
+        this.userMemo = response.data.userMemo;
         
         this.connectionMessage = '✅ Connected';
         
@@ -361,6 +413,58 @@ export default {
       setTimeout(() => {
         this.notification.message = '';
       }, 4000);
+    },
+    
+    // Обработчики TON Wallet
+    onWalletConnected(account) {
+      console.log('Wallet connected:', account);
+      this.walletConnected = true;
+      this.walletAddress = account.address;
+      this.walletBalance = account.balance;
+      this.showNotification('🔗 TON wallet connected successfully!', 'success');
+    },
+    
+    onWalletDisconnected() {
+      console.log('Wallet disconnected');
+      this.walletConnected = false;
+      this.walletAddress = null;
+      this.walletBalance = 0;
+      this.showNotification('🔗 TON wallet disconnected', 'info');
+    },
+    
+    // Обработчик пополнения баланса
+    onDepositInitiated(depositData) {
+      console.log('Deposit initiated:', depositData);
+      this.showNotification('💰 Transaction sent! Waiting for confirmation...', 'info');
+      
+      // В реальном приложении здесь бы была проверка статуса транзакции
+      // Для демо просто показываем уведомление
+      setTimeout(() => {
+        this.showNotification('✅ Deposit confirmed! Balance updated.', 'success');
+        this.loadUserData(); // Обновляем данные пользователя
+      }, 3000);
+    },
+    
+    // Вывод TON на кошелек
+    async withdrawTon() {
+      if (!this.withdrawAmount || this.withdrawAmount < 0.001) return;
+      
+      this.isLoading = true;
+      try {
+        const response = await axios.post(`${API_BASE}/withdraw`, {
+          telegramId: this.telegramId,
+          amount: this.withdrawAmount,
+          walletAddress: this.walletAddress
+        });
+        
+        this.tonBalance = response.data.newTonBalance;
+        this.withdrawAmount = 0;
+        this.showNotification('💸 TON withdrawal initiated! Check your wallet.', 'success');
+      } catch (error) {
+        this.showNotification(error.response?.data?.error || 'Withdrawal failed', 'error');
+      } finally {
+        this.isLoading = false;
+      }
     }
   }
 }
@@ -510,6 +614,11 @@ body {
   color: #212529;
 }
 
+.btn-withdraw {
+  background: #6f42c1;
+  color: white;
+}
+
 .cost-info {
   font-size: 12px;
   color: #666;
@@ -540,6 +649,23 @@ body {
   justify-content: space-between;
   font-size: 12px;
   color: #666;
+}
+
+.memo-item {
+  background: #e3f2fd;
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 8px;
+  border: 1px solid #bbdefb;
+}
+
+.memo-code {
+  font-family: monospace;
+  font-weight: bold;
+  color: #1976d2;
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .connection-status {
