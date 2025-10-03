@@ -323,11 +323,16 @@ export default {
         
         console.log('✅ User data loaded:', response.data);
         
-        this.eggs = response.data.eggs;
-        this.squidCount = response.data.squidCount;
-        this.tonBalance = response.data.tonBalance;
-        this.claimedFreeEggs = response.data.claimedFreeEggs;
-        this.userMemo = response.data.userMemo;
+        if (response.data && response.data.success) {
+          this.eggs = response.data.eggs || 0;
+          this.squidCount = response.data.squidCount || 0;
+          this.tonBalance = response.data.tonBalance || 0;
+          this.claimedFreeEggs = response.data.claimedFreeEggs || false;
+          this.userMemo = response.data.userMemo || '';
+        } else {
+          console.error('❌ Invalid response format:', response.data);
+          this.connectionMessage = '❌ Invalid response from backend';
+        }
         
         this.connectionMessage = '✅ Connected';
         

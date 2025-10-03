@@ -228,7 +228,7 @@ export default {
 
       try {
         // Адрес кошелька проекта (замените на ваш реальный адрес)
-        const projectWalletAddress = 'EQD0vdSA_NedR9uvn89-F6awnYw6Qkci_G7FkSX91qQU-BI0';
+        const projectWalletAddress = '0:0d0f7d2000f7dd47dbef9fcf7e17a6b19c30e9091c8fe1f9164797f75a9043e048d';
         
         // Создаем транзакцию на 1 TON с мемо в комментарии
         const transaction = {
