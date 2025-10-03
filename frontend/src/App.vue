@@ -189,7 +189,9 @@ import axios from 'axios';
 import TonWallet from './components/TonWallet.vue';
 
 // Для локальной разработки
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3000/api' 
+  : '/api';
 
 export default {
   name: 'App',
